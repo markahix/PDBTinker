@@ -4,6 +4,11 @@ Converts PDBs to Tinker XYZs
 
 Handles the primary functions
 """
+import numpy as np
+import parmed as prm
+from string import digits
+import sys
+
 def disambiguate_histidines(temp):
     """
     Returns:
@@ -35,6 +40,22 @@ def check_terminals(temp):
         in nucleic acids. When detected, it modifies the residue name to include
         the appropriate terminal indicator.
     """
+    amino_acid_list = ["GLY","ALA","VAL","LEU","ILE","SER","THR","CYS","CYX","CYM",
+                       "PRO","PHE","TYR","TYD","TRP","HIP","HID","HIE","ASP","ASH",
+                       "ASN","GLU","GLH","GLN","MET","LYS","LYD","ARG","ORN","AIB",
+                       "PCA","NGLY","NALA","NVAL","NLEU","NILE","NSER","NTHR","NCYS",
+                       "NCYX","NCYM","NPRO","NPHE","NTYR","NTYD","NTRP","NHIP","NHID",
+                       "NHIE","NASP","NASH","NASN","NGLU","NGLH","NGLN","NMET","NLYS",
+                       "NLYD","NARG","NORG","NAIB","CGLY","CALA","CVAL","CLEU","CILE",
+                       "CSER","CTHR","CCYS","CCYX","CCYM","CPRO","CPHE","CTYR","CTYD",
+                       "CTRP","CHIP","CHID","CHIE","CASP","CASH","CASN","CGLU","CGLH",
+                       "CGLN","CMET","CLYS","CLYD","CARG","CORN","CAIB"]
+    nucleic_acid_list = ["DA","DC","DG","DT","RA","RC","RG","RU","A","C","G","U",
+                         "DA3","DC3","DG3","DT3","RA3","RC3","RG3","RU3",
+                         "DA5","DC5","DG5","DT5","RA5","RC5","RG5","RU5"]
+    water_list = ["HOH","WAT"]
+    ion_list = ["ZN","LI","NA","K","RB","CS","MG","CA","F","CL","BR","I"]
+
     for residue in temp.residues:
         if residue.name in amino_acid_list:
             atomlist = []
@@ -76,6 +97,7 @@ def build_dictionary(temp,temp_param_file):
     ### Load the key converter.  This will ensure that the parameter file names for residues are properly translated
     ### This may need to be updated in the future/as the project undergoes more testing.
     key_convert=np.load("dictionaries/key_convert_dict.npy").item()
+    temp_param_file = open(temp_param_file,"r")
     params = temp_param_file.readlines()
     temp_param_file.close() ### Always close what you've opened.
 
@@ -129,7 +151,6 @@ def build_dictionary(temp,temp_param_file):
                     atom_type_dictionary[res][atom] = param_set[res[1:]]["HN"]
     return atom_type_dictionary
 
-
 def print_tinker_xyz(temp,atom_type_dictionary):
     """
     Returns:
@@ -171,5 +192,16 @@ def make_tinker_xyz_file(temp, atom_type_dictionary, filename):
 
 
 if __name__ == "__main__":
-    # Do something if this file is invoked on its own
-    print("Hello")
+    # print( 'Number of arguments:', len(sys.argv), 'arguments.')
+    # print( 'Argument List:', str(sys.argv))
+    if len(sys.argv) < 4:
+        sys.exit("Expected 3 arguments:  \n \n pdbtinker.py <file.pdb> <parameters.prm> <output.xyz>")
+
+    system = prm.load_file(sys.argv[1])
+    param_file = sys.argv[2]
+    output_file = sys.argv[3]
+    disambiguate_histidines(system)
+    check_terminals(system)
+    atom_type_dictionary = build_dictionary(system,param_file)
+    # print_tinker_xyz(system,atom_type_dictionary)
+    make_tinker_xyz_file(system,atom_type_dictionary,output_file)
