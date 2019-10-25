@@ -1,23 +1,22 @@
+
 """
 pdbtinker.py
 Converts PDBs to Tinker XYZs
 
 Handles the primary functions
 """
-import numpy as np
 import parmed as prm
-from string import digits
-import sys
+
+
+
+def load_pdb(filename):
+    system = prm.load_file(filename)
+    for atom in system.atoms:
+        atom.mass = 0
+    disambiguate_histidines(system)
+    return system
 
 def disambiguate_histidines(temp):
-    """
-    Returns:
-        None
-    Description:
-        Processes through the PDB by residue, searching for ambiguous histidines,
-        then determines the protonation state and reassigns the residue name
-        appropriate to that state.  This ensures proper histidine processing later.
-    """
     for residue in temp.residues:
         if residue.name == "HIS":
             atomlist=[]
@@ -30,178 +29,436 @@ def disambiguate_histidines(temp):
             elif "HE2" not in atomlist and "HD1" in atomlist:
                 residue.name = "HID"
 
-def check_terminals(temp):
-    """
-    Returns:
-        None
-    Description:
-        Processes PDB system by residue and checks for known N-terminal and
-        C-terminal specific atoms in amino acid residues, and known 5'/3' atoms
-        in nucleic acids. When detected, it modifies the residue name to include
-        the appropriate terminal indicator.
-    """
-    amino_acid_list = ["GLY","ALA","VAL","LEU","ILE","SER","THR","CYS","CYX","CYM",
-                       "PRO","PHE","TYR","TYD","TRP","HIP","HID","HIE","ASP","ASH",
-                       "ASN","GLU","GLH","GLN","MET","LYS","LYD","ARG","ORN","AIB",
-                       "PCA","NGLY","NALA","NVAL","NLEU","NILE","NSER","NTHR","NCYS",
-                       "NCYX","NCYM","NPRO","NPHE","NTYR","NTYD","NTRP","NHIP","NHID",
-                       "NHIE","NASP","NASH","NASN","NGLU","NGLH","NGLN","NMET","NLYS",
-                       "NLYD","NARG","NORG","NAIB","CGLY","CALA","CVAL","CLEU","CILE",
-                       "CSER","CTHR","CCYS","CCYX","CCYM","CPRO","CPHE","CTYR","CTYD",
-                       "CTRP","CHIP","CHID","CHIE","CASP","CASH","CASN","CGLU","CGLH",
-                       "CGLN","CMET","CLYS","CLYD","CARG","CORN","CAIB"]
-    nucleic_acid_list = ["DA","DC","DG","DT","RA","RC","RG","RU","A","C","G","U",
-                         "DA3","DC3","DG3","DT3","RA3","RC3","RG3","RU3",
-                         "DA5","DC5","DG5","DT5","RA5","RC5","RG5","RU5"]
-    water_list = ["HOH","WAT"]
-    ion_list = ["ZN","LI","NA","K","RB","CS","MG","CA","F","CL","BR","I"]
-
-    for residue in temp.residues:
-        if residue.name in amino_acid_list:
-            atomlist = []
-            for atom in residue.atoms:
-                atomlist.append(atom.name)
-            if 'OXT' in atomlist:
-                residue.name = "C" + residue.name
-            elif 'H3' in atomlist:
-                residue.name = "N" + residue.name
-        elif residue.name in nucleic_acid_list:
-            atomlist = []
-            for atom in residue.atoms:
-                atomlist.append(atom.name)
-            if "HO5'" in atomlist:
-                residue.name = residue.name + "5"
-            elif "HO3'" in atomlist:
-                residue.name = residue.name + "3"
-            if "D" not in residue.name and "R" not in residue.name:
-                residue.name = "R" + residue.name
-
-def build_dictionary(temp,temp_param_file):
-    """
-    Returns:
-        Dictionary composed of atom types found in the loaded PDB and with values given by the parameter file.
-    """
-    ### Build dictionary for all PDB atoms found in loaded file.
-    ### This sets the atom type for every atom to 0 initially.
-    atom_type_dictionary={}
-
-    for atom in temp.atoms:
-        res_name = atom.residue.name
-        atom_name = atom.name
-        if res_name not in atom_type_dictionary:
-            atom_type_dictionary[res_name] = {}
-        if atom_name not in atom_type_dictionary[res_name]:
-            atom_type_dictionary[res_name][atom_name] = 0
-
-
-    ### Load the key converter.  This will ensure that the parameter file names for residues are properly translated
-    ### This may need to be updated in the future/as the project undergoes more testing.
-    key_convert=np.load("dictionaries/key_convert_dict.npy").item()
-    temp_param_file = open(temp_param_file,"r")
-    params = temp_param_file.readlines()
-    temp_param_file.close() ### Always close what you've opened.
-
-    ### Get biotype data from parameter file.  May also need updating later, depending on future parameter sets.
-    biotypes = []
+def process_new_parameters(filename):
+    global param_dict
+    temp = open(filename,"r")
+    params = temp.readlines()
+    temp.close()
+    param_dict = {}
     for line in params:
-        if "biotype" in line:
-            biotypes.append(line)
+        if 'atom' in line[:5]:
+    #         print(line)
+            key = line.split("\"")[0].split()[1]
+            value = line.split("\"")[1]
+            value = value.replace("Lysine HN","Lysine HZ").replace("Glycine","GLY").replace("Alanine","ALA").replace("Valine","VAL").replace("Leucine","LEU")
+            value = value.replace("Isoleucine","ILE").replace("Serine","SER").replace("Threonine","THR").replace("Cysteine Anion","CYM")
+            value = value.replace("Cysteine","CYS").replace("Cystine","CYX").replace("Proline","PRO").replace("Phenylalanine","PHE")
+            value = value.replace("Tyrosine Anion","TYD").replace("Tyrosine","TYR").replace("Tryptophan","TRP")
+            value = value.replace("Histidine (+)","HIP").replace("Histidine (HD)","HID").replace("Histidine (HE)","HIE")
+            value = value.replace("Aspartate","ASP").replace("Aspartic Acid","ASH").replace("Glutamate","GLU").replace("Glutamic Acid","GLH")
+            value = value.replace("Asparagine","ASN").replace("Glutamine","GLN").replace("Methionine","MET").replace("Lysine (Neutral)","LYN")
+            value = value.replace("Lysine","LYS").replace("Arginine","ARG").replace("Ornithine","ORN")
+            value = value.replace("Acetyl Cap","ACE").replace("N-MeAmide Cap","NME").replace("Amide Cap","AMC").replace("N-Terminal PRO","NPRO")
+            value = value.replace("N-Terminal","NTERM").replace("C-Terminal","CTERM")
+            value = value.replace("Adenine","A").replace("Cytosine","C").replace("Guanine","G").replace("Thymine","T").replace("Uracil","U")
+            value = value.replace("Ribose","RN").replace("Deoxyribose","DN").replace("R-Phosphodiester","RPhos").replace("D-Phosphodiester","DPhos")
+            value = value.replace("R-5'-Hydroxyl","R5H").replace("R-5'-Phosphate","R5Phos")
+            value = value.replace("R-3'-Hydroxyl","R3H").replace("R-3'-Phosphate","R3Phos")
+            value = value.replace("D-5'-Hydroxyl","D5H").replace("D-5'-Phosphate","D5Phos")
+            value = value.replace("D-3'-Hydroxyl","D3H").replace("D-3'-Phosphate","D3Phos")
+            value = value.replace("AMOEBA Water","WAT").replace("Lithium Ion","LI").replace("Sodium Ion","NA").replace("Potassium Ion","K").replace("Rubidium Ion","RB").replace("Cesium Ion","CS").replace("Beryllium Ion","BE").replace("Magnesium Ion","MG").replace("Calcium Ion","CA").replace("Zinc Ion","ZN").replace("Chloride Ion","CL")
+            value = value.replace("S-","SG").replace("H2'2","H2''")
+            value = value.replace("H5'1","H5'").replace("H5'2","H5''").replace("H2'1","H2'").replace("HO'2","HO''")
+            value = value + " " +line.split("\"")[0].split()[3]
+            param_dict[tuple(value.split())] = key
+    keys = list(param_dict.keys())
+    for key in keys:
+        if len(key) == 4:
+            oldkey = list(key)
+            newkeyvar = ''.join([oldkey[0],oldkey[2]])
+            oldkey[0] = newkeyvar
+            del oldkey[2]
+            param_dict[tuple(oldkey)] = param_dict[key]
+            del param_dict[key]
 
-    ### Build dictionary from parameter file.
-    param_set = {}
-    for line in biotypes:
-        old_key = line.split("\"")[1]
-        atom_type = line.split("\"")[2].split()[0]
-        atom_name = line.split("\"")[0].split()[-1].replace("*","\'")
-        new_key = key_convert[old_key]
-        if new_key not in param_set.keys():
-            param_set[new_key] = {}
-        if atom_name not in param_set[new_key].keys():
-            param_set[new_key][atom_name] = atom_type
-    ### In case the parameters don't include HIS, I've assumed all HIS residues are HID.  If not, fix your PDB.
-    ### HIS is ambiguous, and there is no place for ambiguity here.
-    # param_set["HIS"] = param_set["HID"]
+def process_n_terminal(residue):
+    for atom in residue.atoms:
+        if atom.mass == 0:
+            if atom.name == "N":
+                atom.mass = param_dict[("NTERM","NH3+","N")]
+            elif atom.name == "H1" or atom.name == "H2" or atom.name == "H3":
+                atom.mass = param_dict[("NTERM","H3N+","H")]
 
-    ### Fill the PDB Dictionary set with corresponding atom types from the parameter set.
-    ### Atom types that aren't in the parameter file will remain 0 and get flagged on file output.
-    ### Don't look at this loop, it's chaotic and inelegant.  But it works so far, at least for amino acids.
-    for res in atom_type_dictionary.keys():
-        for atom in atom_type_dictionary[res].keys():
-            if res in param_set.keys() and atom_type_dictionary[res][atom] == 0:
-                if atom in param_set[res].keys():
-                    atom_type_dictionary[res][atom] = param_set[res][atom]
-                elif ''.join(i for i in atom if not i.isdigit()) in param_set[res].keys():
-                    atom_type_dictionary[res][atom] = param_set[res][''.join(i for i in atom if not i.isdigit())]
-                elif atom[:-1] in param_set[res].keys():
-                    atom_type_dictionary[res][atom] = param_set[res][atom[:-1]]
-                elif atom[:-2] in param_set[res].keys():
-                    atom_type_dictionary[res][atom] = param_set[res][atom[:-2]]
-                elif atom in ["H","H1","H2","H3"] and "HN" in param_set[res].keys():
-                    atom_type_dictionary[res][atom] = param_set[res]["HN"]
-            if res[1:] in param_set.keys() and atom_type_dictionary[res][atom] == 0:
-                if atom in param_set[res[1:]].keys():
-                    atom_type_dictionary[res][atom] = param_set[res[1:]][atom]
-                elif ''.join(i for i in atom if not i.isdigit()) in param_set[res[1:]].keys():
-                    atom_type_dictionary[res][atom] = param_set[res[1:]][''.join(i for i in atom if not i.isdigit())]
-                elif atom[:-1] in param_set[res[1:]].keys():
-                    atom_type_dictionary[res][atom] = param_set[res[1:]][atom[:-1]]
-                elif atom[:-2] in param_set[res[1:]].keys():
-                    atom_type_dictionary[res][atom] = param_set[res[1:]][atom[:-2]]
-                elif atom in ["H","H1","H2","H3"]:
-                    atom_type_dictionary[res][atom] = param_set[res[1:]]["HN"]
-    return atom_type_dictionary
+def process_c_terminal(residue):
+    for atom in residue.atoms:
+        if atom.mass == 0:
+            if atom.name == "C":
+                atom.mass = param_dict[("CTERM","COO-","C")]
+            elif atom.name == "O" or atom.name == "OXT":
+                atom.mass = param_dict[("CTERM","COO-","O")]
 
-def print_tinker_xyz(temp,atom_type_dictionary):
-    """
-    Returns:
-        None
-    Description:
-        Prints system as Tinker XYZ to the terminal/stdout.
-    """
-    print(str(len(temp.atoms)))
-    for atom in temp.atoms:
-        atomstring = str(atom.idx+1) + "\t" + str(atom.name) + "\t" + str(atom.xx) + "\t" + str(atom.xy) + "\t" + str(atom.xz) + "\t" + str(atom_type_dictionary[atom.residue.name][atom.name]) + "\t"
+def process_backbone(residue):
+    for atom in residue.atoms:
+        if atom.mass == 0:
+            if atom.name == "N":
+                atom.mass = param_dict[('ALA', 'N', 'N')]
+            elif atom.name == "C":
+                atom.mass = param_dict[('ALA', 'C', 'C')]
+            elif atom.name == "CA":
+                atom.mass = param_dict[('ALA', 'CA', 'CA')]
+            elif atom.name == "O":
+                atom.mass = param_dict[('ALA', 'O', 'O')]
+            elif atom.name == "H":
+                atom.mass = param_dict[('ALA', 'HN', 'HN')]
+            elif atom.name == "HA":
+                atom.mass = param_dict[('ALA', 'HA', 'H')]
+
+def process_glycine(residue):
+    for atom in residue.atoms:
+        if atom.mass == 0:
+            if atom.name == "N":
+                atom.mass = param_dict[('GLY', 'N', 'N')]
+            elif atom.name == "C":
+                atom.mass = param_dict[('GLY', 'C', 'C')]
+            elif atom.name == "CA":
+                atom.mass = param_dict[('GLY', 'CA', 'CA')]
+            elif atom.name == "O":
+                atom.mass = param_dict[('GLY', 'O', 'O')]
+            elif atom.name == "H":
+                atom.mass = param_dict[('GLY', 'HN', 'HN')]
+            elif atom.name == "HA2" or atom.name == "HA3":
+                atom.mass = param_dict[('GLY', 'HA', 'H')]
+
+def process_n_term_proline(residue):
+    for atom in residue.atoms:
+        if atom.mass == 0:
+            if atom.name == "N":
+                atom.mass = param_dict[("NPRO","NH2+","N")]
+            elif atom.name == "H1" or atom.name == "H2" or atom.name == "H3":
+                atom.mass = param_dict[("NPRO","H2N+","HN")]
+            elif atom.name == "CA":
+                atom.mass = param_dict[('NPRO', 'CA', 'CA')]
+            elif atom.name == "C":
+                atom.mass = param_dict[('NPRO', 'C', 'C')]
+            elif atom.name == "O":
+                atom.mass = param_dict[('NPRO', 'O', 'O')]
+            elif atom.name == "HA":
+                atom.mass = param_dict[('NPRO', 'HA', 'H')]
+            elif atom.name == "CD":
+                atom.mass = param_dict[('NPRO', 'CD', 'C')]
+            elif atom.name == "HD2" or atom.name == "HD3":
+                atom.mass = param_dict[('NPRO', 'HD', 'H')]
+
+def get_key(resname,atomname):
+    keys = param_dict.keys()
+    for key in keys:
+        if resname == key[0] and atomname == key[1]:
+            return key
+    for key in keys:
+        if resname == key[0] and atomname[:-1] == key[1]:
+            return key
+    for key in keys:
+        if resname == key[0] and atomname[:-2] == key[1]:
+            return key
+    for key in keys:
+        if resname == "CYX":
+            return get_key("CYS",atomname)
+    for key in keys:
+        if resname == "LYD":
+            return get_key("LYS",atomname)
+    for key in keys:
+        if resname == "TYD":
+            return get_key("TYR",atomname)
+    return 0
+
+def process_side_chain(residue):
+    r_name = residue.name
+    for atom in residue.atoms:
+        a_name = atom.name
+        if atom.mass == 0:
+            key = get_key(r_name,a_name)
+            if key == 0:
+                atom.mass = 0
+            else:
+                atom.mass = param_dict[key]
+
+def process_amino_acid(residue):
+    atomlist = []
+    for atom in residue.atoms:
+        atomlist.append(atom.name)
+    if residue.name == "PRO":
+        #check if it's n-terminal proline
+        if 'H3' in atomlist:
+            process_n_term_proline(residue)
+#             process_proline(residue)
+            #apply n-terminal proline values
+        if 'OXT' in atomlist:
+            #apply c-terminal backbone
+            process_c_terminal(residue)
+    elif residue.name == "GLY":
+        #check for n-terminal
+        if "H3" in atomlist:
+            process_n_terminal(residue)
+        #check if it's c-terminal
+        if 'OXT' in atomlist:
+            process_c_terminal(residue)
+        #process backbone
+        process_glycine(residue)
+
+    if "H3" in atomlist:
+        process_n_terminal(residue)
+
+    #check if it's c-terminal
+    if 'OXT' in atomlist:
+        process_c_terminal(residue)
+
+    #process backbone
+    process_backbone(residue)
+    #process side chain atoms
+    process_side_chain(residue)
+
+def process_PDB(system):
+    global amino_acid_list
+    global nucleic_acid_list
+    global water_list
+    global ion_list
+    global cap_list
+    for residue in system.residues:
+        if residue.name in amino_acid_list:
+            process_amino_acid(residue)
+        elif residue.name in nucleic_acid_list:
+            process_nucleotide(residue)
+        elif residue.name in water_list:
+            process_water(residue)
+        elif residue.name in ion_list:
+            process_ion(residue)
+        elif residue.name in cap_list:
+            process_cap(residue)
+
+def build_xyz(system,filename):
+    f = open(filename,"w")
+    for atom in system.atoms:
+        bondstring = ""
         for i in atom.bonds:
             if i.atom1.idx == atom.idx:
-                atomstring = atomstring + str(i.atom2.idx+1) + "\t"
+                bondstring = bondstring + str(i.atom2.idx+1) + "\t"
             elif i.atom2.idx == atom.idx:
-                atomstring = atomstring + str(i.atom1.idx+1) + "\t"
-        if atom_type_dictionary[atom.residue.name][atom.name] == 0:
-            atomstring = atomstring + "ATOM TYPE NOT FOUND\t"
-        print(atomstring)
+                bondstring = bondstring + str(i.atom1.idx+1) + "\t"
 
-def make_tinker_xyz_file(temp, atom_type_dictionary, filename):
-    """
-    Returns:
-        None
-    Description:
-        Outputs Tinker XYZ file to designated filename.
-    """
-    f = open(filename,"w+")
-    f.write(str(len(temp.atoms))+"\n")
-    for atom in temp.atoms:
-        atomstring = str(atom.idx+1) + "\t" + str(atom.name) + "\t" + str(atom.xx) + "\t" + str(atom.xy) + "\t" + str(atom.xz) + "\t" + str(atom_type_dictionary[atom.residue.name][atom.name]) + "\t"
-        for i in atom.bonds:
-            if i.atom1.idx == atom.idx:
-                atomstring = atomstring + str(i.atom2.idx+1) + "\t"
-            elif i.atom2.idx == atom.idx:
-                atomstring = atomstring + str(i.atom1.idx+1) + "\t"
-        if atom_type_dictionary[atom.residue.name][atom.name] == 0:
-            atomstring = atomstring + "ATOM TYPE NOT FOUND\t"
-        f.write(atomstring+"\n")
+        index = atom.idx+1
+        name = atom.name
+        x = atom.xx
+        y = atom.xy
+        z = atom.xz
+        atomtype = atom.mass
+        linestring = str(index)+"\t"+str(name)+"\t"+str(x)+"\t"+str(y)+"\t"+str(z)+"\t"+str(atomtype)+"\t"+bondstring+"\t"
+        if atomtype == 0:
+            linestring = linestring + "ATOM TYPE NOT FOUND"
+        linestring = linestring + "\n"
+        f.write(linestring)
+    f.close()
 
+def process_nucleotide(residue):
+    atomlist = []
+    for atom in residue.atoms:
+        atomlist.append(atom.name)
+    process_nucleic_terminals(residue)
+    if "H2''" in atomlist or "H2'2" in atomlist:
+        process_deoxy_phosphate(residue)
+        process_deoxyribose(residue)
+    process_ribose_phosphate(residue)
+    process_ribose(residue)
+    process_base(residue)
+
+def process_base(residue):
+    for atom in residue.atoms:
+        a_name = atom.name
+        if atom.mass == 0:
+            if "A" in residue.name:
+                key = get_key("A",a_name)
+                if key == 0:
+                    atom.mass = 0
+                else:
+                    atom.mass = param_dict[key]
+            if "C" in residue.name:
+                key = get_key("C",a_name)
+                if key == 0:
+                    atom.mass = 0
+                else:
+                    atom.mass = param_dict[key]
+            if "G" in residue.name:
+                key = get_key("G",a_name)
+                if key == 0:
+                    atom.mass = 0
+                else:
+                    atom.mass = param_dict[key]
+            if "T" in residue.name:
+                key = get_key("T",a_name)
+                if key == 0:
+                    atom.mass = 0
+                else:
+                    atom.mass = param_dict[key]
+            if "U" in residue.name:
+                key = get_key("U",a_name)
+                if key == 0:
+                    atom.mass = 0
+                else:
+                    atom.mass = param_dict[key]
+
+def process_deoxy_phosphate(residue):
+    for atom in residue.atoms:
+        a_name = atom.name
+        if atom.mass == 0 and atom.name =="P":
+            key = get_key("DPhos","P")
+            if key == 0:
+                atom.mass = 0
+            else:
+                atom.mass = param_dict[key]
+        if atom.mass == 0 and "O" in atom.name and "P" in atom.name:
+            key = get_key("DPhos","OP")
+            if key == 0:
+                atom.mass = 0
+            else:
+                atom.mass = param_dict[key]
+
+def process_ribose_phosphate(residue):
+    for atom in residue.atoms:
+        a_name = atom.name
+        if atom.mass == 0 and atom.name =="P":
+            key = get_key("RPhos","P")
+            if key == 0:
+                atom.mass = 0
+            else:
+                atom.mass = param_dict[key]
+        if atom.mass == 0 and "O" in atom.name and "P" in atom.name:
+            key = get_key("RPhos","OP")
+            if key == 0:
+                atom.mass = 0
+            else:
+                atom.mass = param_dict[key]
+
+def process_deoxyribose(residue):
+    for atom in residue.atoms:
+        a_name = atom.name
+        if atom.mass == 0:
+            if "C" in residue.name or "T" in residue.name:
+                key = get_key("DN(CT)",a_name)
+                if key == 0:
+                    atom.mass = 0
+                else:
+                    atom.mass = param_dict[key]
+            elif "G" in residue.name or "A" in residue.name:
+                key = get_key("DN(AG)",a_name)
+                if key == 0:
+                    atom.mass = 0
+                else:
+                    atom.mass = param_dict[key]
+
+def process_ribose(residue):
+    for atom in residue.atoms:
+        a_name = atom.name
+        if atom.name == "HO2'":
+            a_name = "HO''"
+        if atom.mass == 0:
+            if "C" in residue.name or "U" in residue.name:
+                key = get_key("RN(CU)",a_name)
+                if key == 0:
+                    atom.mass = 0
+                else:
+                    atom.mass = param_dict[key]
+            elif "G" in residue.name or "A" in residue.name:
+                key = get_key("RN(AG)",a_name)
+                if key == 0:
+                    atom.mass = 0
+                else:
+                    atom.mass = param_dict[key]
+
+def process_nucleic_terminals(residue):
+    for atom in residue.atoms:
+        if atom.mass == 0:
+            if (atom.name == "HO5'" or atom.name == "H5T") and "D" in residue.name:
+                atom.mass = param_dict[('D5H', 'H5T', 'HO')]
+            elif atom.name == "HO5'":
+                atom.mass = param_dict[('R5H', 'H5T', 'HO')]
+            elif (atom.name == "HO3'" or atom.name == "H3T") and "D" in residue.name:
+                atom.mass = param_dict[('D3H', 'H3T', 'HO')]
+            elif atom.name == "HO3'":
+                atom.mass = param_dict[('R3H', 'H3T', 'HO')]
+            elif atom.name == "O5'" and "D" in residue.name:
+                bondlist = []
+                for bond in atom.bonds:
+                    if atom.name == bond.atom1.name:
+                        bondlist.append(bond.atom2.name)
+                    elif atom.name == bond.atom2.name:
+                        bondlist.append(bond.atom1.name)
+                if "P" not in bondlist:
+                    atom.mass = param_dict[('D5H', "O5'T", 'OH')]
+            elif atom.name == "O5'":
+                bondlist = []
+                for bond in atom.bonds:
+                    if atom.name == bond.atom1.name:
+                        bondlist.append(bond.atom2.name)
+                    elif atom.name == bond.atom2.name:
+                        bondlist.append(bond.atom1.name)
+                if "P" not in bondlist:
+                    atom.mass = param_dict[('R5H', "O5'T", 'OH')]
+            elif atom.name == "O3'" and "D" in residue.name:
+                bondlist = []
+                for bond in atom.bonds:
+                    if atom.name == bond.atom1.name:
+                        bondlist.append(bond.atom2.name)
+                    elif atom.name == bond.atom2.name:
+                        bondlist.append(bond.atom1.name)
+                if "P" not in bondlist:
+                    atom.mass = param_dict[('D3H', "O3'T", 'OH')]
+            elif atom.name == "O3'":
+                bondlist = []
+                for bond in atom.bonds:
+                    if atom.name == bond.atom1.name:
+                        bondlist.append(bond.atom2.name)
+                    elif atom.name == bond.atom2.name:
+                        bondlist.append(bond.atom1.name)
+                if "P" not in bondlist:
+                    atom.mass = param_dict[('R3H', "O3'T", 'OH')]
+
+def process_water(residue):
+    for atom in residue.atoms:
+        if atom.mass == 0:
+            if atom.name == "O":
+                atom.mass = param_dict[('WAT', 'O', 'O')]
+            if atom.name == "H1" or atom.name == "H2":
+                atom.mass = param_dict[('WAT', 'H', 'H')]
+
+def process_ion(residue):
+    for atom in residue.atoms:
+        if atom.mass == 0:
+            key = get_ion_key(residue.name)
+            if key == 0:
+                atom.mass = 0
+            else:
+                atom.mass = param_dict[key]
+
+def get_ion_key(name):
+    keys = param_dict.keys()
+    for key in keys:
+        if name in key[0]:
+            return key
+    for key in keys:
+        if name[:-1] in key[0]:
+            return key
+    return 0
+
+def process_cap(residue):
+    for atom in residue.atoms:
+        if atom.mass == 0:
+            key = get_key(residue.name,atom.name)
+            if "HH3" in atom.name:
+                key = get_key(residue.name,"H3C")
+            if atom.name == "H":
+                key = get_key(residue.name,"HN")
+            if key == 0:
+                atom.mass = 0
+            else:
+                atom.mass = param_dict[key]
 
 if __name__ == "__main__":
-    # print( 'Number of arguments:', len(sys.argv), 'arguments.')
-    # print( 'Argument List:', str(sys.argv))
-    if len(sys.argv) < 4:
-        sys.exit("Expected 3 arguments:  \n \n pdbtinker.py <file.pdb> <parameters.prm> <output.xyz>")
-
-    system = prm.load_file(sys.argv[1])
-    param_file = sys.argv[2]
-    output_file = sys.argv[3]
-    disambiguate_histidines(system)
-    check_terminals(system)
-    atom_type_dictionary = build_dictionary(system,param_file)
-    # print_tinker_xyz(system,atom_type_dictionary)
-    make_tinker_xyz_file(system,atom_type_dictionary,output_file)
+    if len(sys.argv) != 4:
+        sys.exit("Expected 3 arguments:  \n \n python pdbtinker.py <file.pdb> <parameters.prm> <output.xyz>")
+    if len(sys.argv) == 4:
+        if sys.argv[1].split(".")[1] == "pdb" and sys.argv[2].split(".")[1] == "prm" and sys.argv[3].split(".")[1] == "xyz":
+            system = load_pdb(sys.argv[1])
+            param_dict = process_new_parameters(sys.argv[2])
+            process_PDB(system)
+            build_xyz(system,sys.argv[3])
+        else:
+            print("Arguments invalid.\n\n\tpython pdbtinker.py <file.pdb> <parameters.prm> <output.xyz>")
