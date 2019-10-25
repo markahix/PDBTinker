@@ -7,6 +7,8 @@ PDB-Tinker
 
 Converts PDBs to Tinker XYZs
 
+Documentation coming soon.
+
 ### Copyright
 
 Copyright (c) 2019, Mark A. Hix
