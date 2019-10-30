@@ -49,10 +49,10 @@ def disambiguate_residues(temp):
 
 def process_new_parameters(filename):
     global param_dict
+    global atom_name_dict
     temp = open(filename,"r")
     params = temp.readlines()
     temp.close()
-    param_dict = {}
     for line in params:
         if 'atom' in line[:5]:
     #         print(line)
@@ -88,9 +88,6 @@ def process_new_parameters(filename):
             del oldkey[2]
             param_dict[tuple(oldkey)] = param_dict[key]
             del param_dict[key]
-
-def process_type_names(filename):
-    global atom_name_dict
     temp = open(filename,"r")
     params = temp.readlines()
     temp.close()
@@ -99,14 +96,6 @@ def process_type_names(filename):
             key = line.split("\"")[0].split()[1]
             value = line.split("\"")[0].split()[3]
             atom_name_dict[key] = value
-
-def process_n_terminal(residue):
-    for atom in residue.atoms:
-        if atom.mass == 0:
-            if atom.name == "N":
-                atom.mass = param_dict[("NTERM","NH3+","N")]
-            elif atom.name == "H1" or atom.name == "H2" or atom.name == "H3":
-                atom.mass = param_dict[("NTERM","H3N+","H")]
 
 def process_c_terminal(residue):
     for atom in residue.atoms:
@@ -524,7 +513,7 @@ if __name__ == "__main__":
     if len(sys.argv) == 4:
         if sys.argv[1].split(".")[-1] == "pdb" and sys.argv[2].split(".")[1] == "prm" and sys.argv[3].split(".")[1] == "xyz":
             system = load_pdb(sys.argv[1])
-            param_dict = process_new_parameters(sys.argv[2])
+            process_new_parameters(sys.argv[2])
             process_PDB(system)
             build_xyz(system,sys.argv[3])
         else:
