@@ -6,17 +6,35 @@ Converts PDBs to Tinker XYZs
 Handles the primary functions
 """
 import parmed as prm
+import sys
+import numpy as np
+import os
+import PDBTinker.dictionaries as dictionaries
 
+dictpath = os.path.dirname(dictionaries.__file__)
+amino_acid_list = np.load(dictpath+"/amino_acid_list.npy")
+nucleic_acid_list = np.load(dictpath+"/nucleic_acid_list.npy")
+water_list = np.load(dictpath+"/water_list.npy")
+ion_list = np.load(dictpath+"/ion_list.npy")
+non_standard_list = np.load(dictpath+"/non_standard_list.npy")
+cap_list = np.load(dictpath+"/cap_list.npy")
+param_dict={}
+atom_name_dict={}
 
+def interatomic_distance(atom1,atom2):
+    x_diff = (atom1.xx - atom2.xx)**2
+    y_diff = (atom1.xy - atom2.xy)**2
+    z_diff = (atom1.xz - atom2.xz)**2
+    return np.sqrt(x_diff + y_diff + z_diff)
 
 def load_pdb(filename):
     system = prm.load_file(filename)
     for atom in system.atoms:
         atom.mass = 0
-    disambiguate_histidines(system)
+    disambiguate_residues(system)
     return system
 
-def disambiguate_histidines(temp):
+def disambiguate_residues(temp):
     for residue in temp.residues:
         if residue.name == "HIS":
             atomlist=[]
@@ -71,6 +89,17 @@ def process_new_parameters(filename):
             param_dict[tuple(oldkey)] = param_dict[key]
             del param_dict[key]
 
+def process_type_names(filename):
+    global atom_name_dict
+    temp = open(filename,"r")
+    params = temp.readlines()
+    temp.close()
+    for line in params:
+        if 'atom' in line[:5]:
+            key = line.split("\"")[0].split()[1]
+            value = line.split("\"")[0].split()[3]
+            atom_name_dict[key] = value
+
 def process_n_terminal(residue):
     for atom in residue.atoms:
         if atom.mass == 0:
@@ -89,6 +118,8 @@ def process_c_terminal(residue):
 
 def process_backbone(residue):
     for atom in residue.atoms:
+        if "CY" in residue.name and atom.mass == 0 and atom.name == "CA":
+            atom.mass = param_dict[('CYS','CA','CA')]
         if atom.mass == 0:
             if atom.name == "N":
                 atom.mass = param_dict[('ALA', 'N', 'N')]
@@ -167,10 +198,32 @@ def process_side_chain(residue):
         a_name = atom.name
         if atom.mass == 0:
             key = get_key(r_name,a_name)
+            if r_name == "THR" and atom.name == "HG1":
+                key = get_key("THR","H")
             if key == 0:
                 atom.mass = 0
             else:
                 atom.mass = param_dict[key]
+
+def process_proline(residue):
+    for atom in residue.atoms:
+        if atom.mass == 0:
+            if atom.name == "N":
+                atom.mass = param_dict[("PRO","N","N")]
+            elif atom.name == "H1" or atom.name == "H2" or atom.name == "H3":
+                atom.mass = param_dict[("PRO","H2N+","HN")]
+            elif atom.name == "CA":
+                atom.mass = param_dict[('PRO', 'CA', 'CA')]
+            elif atom.name == "C":
+                atom.mass = param_dict[('PRO', 'C', 'C')]
+            elif atom.name == "O":
+                atom.mass = param_dict[('PRO', 'O', 'O')]
+            elif atom.name == "HA":
+                atom.mass = param_dict[('PRO', 'HA', 'H')]
+            elif atom.name == "CD":
+                atom.mass = param_dict[('PRO', 'CD', 'C')]
+            elif atom.name == "HD2" or atom.name == "HD3":
+                atom.mass = param_dict[('PRO', 'HD', 'H')]
 
 def process_amino_acid(residue):
     atomlist = []
@@ -185,6 +238,7 @@ def process_amino_acid(residue):
         if 'OXT' in atomlist:
             #apply c-terminal backbone
             process_c_terminal(residue)
+        process_proline(residue)
     elif residue.name == "GLY":
         #check for n-terminal
         if "H3" in atomlist:
@@ -201,7 +255,6 @@ def process_amino_acid(residue):
     #check if it's c-terminal
     if 'OXT' in atomlist:
         process_c_terminal(residue)
-
     #process backbone
     process_backbone(residue)
     #process side chain atoms
@@ -224,24 +277,38 @@ def process_PDB(system):
             process_ion(residue)
         elif residue.name in cap_list:
             process_cap(residue)
+    for atom in system.atoms:
+        if atom.mass != 0:
+            atom.name = atom_name_dict[atom.mass]
 
 def build_xyz(system,filename):
     f = open(filename,"w")
+    f.write(str(len(system.atoms))+"\n")
     for atom in system.atoms:
         bondstring = ""
+        bondlist = []
         for i in atom.bonds:
             if i.atom1.idx == atom.idx:
-                bondstring = bondstring + str(i.atom2.idx+1) + "\t"
+                bondlist.append(i.atom2.idx+1)
+                # bondstring = bondstring + str(i.atom2.idx+1) + "\t"
             elif i.atom2.idx == atom.idx:
-                bondstring = bondstring + str(i.atom1.idx+1) + "\t"
-
+                bondlist.append(i.atom1.idx+1)
+                # bondstring = bondstring + str(i.atom1.idx+1) + "\t"
+        if atom.name == "SS" and atom.residue.name == "CYX" and len(bondlist) < 2:
+            for atom2 in system.atoms:
+                if atom2.residue.name == "CYX" and atom2.name == "SS":
+                    ia_dist = interatomic_distance(atom,atom2)
+                    if ia_dist < 2 and ia_dist > 0:
+                        bondlist.append(atom2.idx)
+        bondlist.sort()
+        bondstring = ''.join(str('{:>6}'.format(x)) for x in bondlist)
         index = atom.idx+1
         name = atom.name
         x = atom.xx
         y = atom.xy
         z = atom.xz
         atomtype = atom.mass
-        linestring = str(index)+"\t"+str(name)+"\t"+str(x)+"\t"+str(y)+"\t"+str(z)+"\t"+str(atomtype)+"\t"+bondstring+"\t"
+        linestring = "{:>6}  {:<2} {:>12.6f} {:>11.6f} {:>11.6f} {:>5}{}".format(str(index),str(name),x,y,z,str(atomtype),bondstring)
         if atomtype == 0:
             linestring = linestring + "ATOM TYPE NOT FOUND"
         linestring = linestring + "\n"
@@ -431,10 +498,10 @@ def process_ion(residue):
 def get_ion_key(name):
     keys = param_dict.keys()
     for key in keys:
-        if name in key[0]:
+        if name == key[0]:
             return key
     for key in keys:
-        if name[:-1] in key[0]:
+        if name[:-1] == key[0]:
             return key
     return 0
 
@@ -455,10 +522,10 @@ if __name__ == "__main__":
     if len(sys.argv) != 4:
         sys.exit("Expected 3 arguments:  \n \n python pdbtinker.py <file.pdb> <parameters.prm> <output.xyz>")
     if len(sys.argv) == 4:
-        if sys.argv[1].split(".")[1] == "pdb" and sys.argv[2].split(".")[1] == "prm" and sys.argv[3].split(".")[1] == "xyz":
+        if sys.argv[1].split(".")[-1] == "pdb" and sys.argv[2].split(".")[1] == "prm" and sys.argv[3].split(".")[1] == "xyz":
             system = load_pdb(sys.argv[1])
             param_dict = process_new_parameters(sys.argv[2])
             process_PDB(system)
             build_xyz(system,sys.argv[3])
         else:
-            print("Arguments invalid.\n\n\tpython pdbtinker.py <file.pdb> <parameters.prm> <output.xyz>")
+            sys.exit("Arguments invalid.\n\n\tpython pdbtinker.py <file.pdb> <parameters.prm> <output.xyz>")
