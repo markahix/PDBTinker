@@ -97,6 +97,14 @@ def process_new_parameters(filename):
             value = line.split("\"")[0].split()[3]
             atom_name_dict[key] = value
 
+def process_n_terminal(residue):
+    for atom in residue.atoms:
+        if atom.mass == 0:
+            if atom.name == "N":
+                atom.mass = param_dict[("NTERM","NH3+","N")]
+            elif atom.name == "H1" or atom.name == "H2" or atom.name == "H3":
+                atom.mass = param_dict[("NTERM","H3N+","H")]
+
 def process_c_terminal(residue):
     for atom in residue.atoms:
         if atom.mass == 0:
