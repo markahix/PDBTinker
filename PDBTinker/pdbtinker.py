@@ -111,9 +111,11 @@ def process_c_terminal(residue):
     for atom in residue.atoms:
         if atom.mass == 0:
             if atom.name == "C":
-                atom.mass = param_dict[("CTERM","COO-","C")]
+                if ("CTERM","COO-","C") in param_dict.keys():
+                    atom.mass = param_dict[("CTERM","COO-","C")]
             elif atom.name == "O" or atom.name == "OXT":
-                atom.mass = param_dict[("CTERM","COO-","O")]
+                if ("CTERM","COO-","O") in param_dict.keys():
+                    atom.mass = param_dict[("CTERM","COO-","O")]
 
 def process_backbone(residue):
     for atom in residue.atoms:
