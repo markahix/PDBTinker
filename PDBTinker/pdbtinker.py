@@ -9,17 +9,22 @@ import parmed as prm
 import sys
 import numpy as np
 import os
+import glob
 import PDBTinker.dictionaries as dictionaries
 
 dictpath = os.path.dirname(dictionaries.__file__)
-amino_acid_list = np.load(dictpath+"/amino_acid_list.npy")
-nucleic_acid_list = np.load(dictpath+"/nucleic_acid_list.npy")
-water_list = np.load(dictpath+"/water_list.npy")
-ion_list = np.load(dictpath+"/ion_list.npy")
-non_standard_list = np.load(dictpath+"/non_standard_list.npy")
-cap_list = np.load(dictpath+"/cap_list.npy")
+amino_acid_list = np.load(dictpath+"/lists/amino_acid_list.npy")
+nucleic_acid_list = np.load(dictpath+"/lists/nucleic_acid_list.npy")
+water_list = np.load(dictpath+"/lists/water_list.npy")
+ion_list = np.load(dictpath+"/lists/ion_list.npy")
+non_standard_list = np.load(dictpath+"/lists/non_standard_list.npy")
+cap_list = np.load(dictpath+"/lists/cap_list.npy")
 param_dict={}
 atom_name_dict={}
+system = ""
+
+def cls():
+    os.system('cls' if os.name=='nt' else 'clear')
 
 def interatomic_distance(atom1,atom2):
     x_diff = (atom1.xx - atom2.xx)**2
@@ -55,7 +60,6 @@ def process_new_parameters(filename):
     temp.close()
     for line in params:
         if 'atom' in line[:5]:
-    #         print(line)
             key = line.split("\"")[0].split()[1]
             value = line.split("\"")[1]
             value = value.replace("Lysine HN","Lysine HZ").replace("Glycine","GLY").replace("Alanine","ALA").replace("Valine","VAL").replace("Leucine","LEU")
@@ -96,6 +100,14 @@ def process_new_parameters(filename):
             key = line.split("\"")[0].split()[1]
             value = line.split("\"")[0].split()[3]
             atom_name_dict[key] = value
+    cls()
+    print("Parameter set imported successfully.")
+
+def process_existing_parameters(filename):
+    global param_dict
+    param_dict = np.load(dictpath+"/"+filename+".npy",allow_pickle=True).item()
+    cls()
+    print("Parameter set",filename,"loaded successfully.")
 
 def process_n_terminal(residue):
     for atom in residue.atoms:
@@ -280,9 +292,14 @@ def process_PDB(system):
             process_cap(residue)
     for atom in system.atoms:
         if atom.mass != 0:
-            atom.name = atom_name_dict[atom.mass]
+            if atom.name in atom_name_dict.keys():
+                atom.name = atom_name_dict[atom.mass]
+            else:
+                atom.name = atom.name[:2]
 
 def build_xyz(system,filename):
+    if filename.split(".")[-1] != "xyz":
+        filename = filename+".xyz"
     f = open(filename,"w")
     f.write(str(len(system.atoms))+"\n")
     for atom in system.atoms:
@@ -519,14 +536,113 @@ def process_cap(residue):
             else:
                 atom.mass = param_dict[key]
 
-if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        sys.exit("Expected 3 arguments:  \n \n python pdbtinker.py <file.pdb> <parameters.prm> <output.xyz>")
-    if len(sys.argv) == 4:
-        if sys.argv[1].split(".")[-1] == "pdb" and sys.argv[2].split(".")[1] == "prm" and sys.argv[3].split(".")[1] == "xyz":
-            system = load_pdb(sys.argv[1])
-            process_new_parameters(sys.argv[2])
-            process_PDB(system)
-            build_xyz(system,sys.argv[3])
+def save_current_parameters(filename):
+    global param_dict
+    np.save(dictpath+"/"+filename,param_dict)
+
+def modify_current_parameters():
+    global param_dict
+    print("1.  Add new atom type")
+    print("2.  Modify existing atom type")
+    print("3.  Back to parameter menu")
+    choice = int(input("Enter your selection: "))
+    cls()
+    if choice == 1:
+        pdb_res = input("Enter the PDB residue code.\n>")
+        pdb_atom = input("Enter the PDB atom name (for atoms with multiple numbers, you can group them together)\n>")
+        tinker_atom = input("Enter the Tinker atom name.\n>")
+        atom_type = input("Enter the tinker atom type (#)\n>")
+        key = [pdb_res,pdb_atom,tinker_atom]
+        key = tuple(key)
+        if key in param_dict.keys():
+            print("Key already found with atom type",param_dict[key])
         else:
-            sys.exit("Arguments invalid.\n\n\tpython pdbtinker.py <file.pdb> <parameters.prm> <output.xyz>")
+            param_dict[key] = atom_type
+    elif choice == 2:
+        pdb_res = str(input("Enter the PDB residue code.\n>"))
+        pdb_atom = str(input("Enter the PDB atom name (for atoms with multiple numbers, you can group them together)\n>"))
+        tinker_atom = str(input("Enter the Tinker atom name.\n>"))
+        atom_type = int(input("Enter the tinker atom type (#)\n>"))
+        key = [pdb_res,pdb_atom,tinker_atom]
+        key = tuple(key)
+        if key not in param_dict.keys():
+            print("Key not found.")
+        else:
+            param_dict[key] = atom_type
+    elif choice == 3:
+        return
+    modify_current_parameters()
+
+def parameter_menu():
+    print("1. Load new parameters")
+    print("2. Load existing parameters")
+    print("3. Modify current parameter set")
+    print("4. Save current parameter set")
+    print("5. Back to Main Menu")
+    choice = int(input("Enter your selection: "))
+    cls()
+    if choice == 1: # load from a parameter file, not all that great tbh.
+        filename = input("Please enter the filename of the new parameter set you wish to load.\n> ")
+        process_new_parameters(filename)
+        print("Parameters loaded.")
+    elif choice == 2: # load a dictionary that was previously made
+        file_list = []
+        for file in glob.glob(dictpath+"/*.npy"):
+            file_list.append(file.split("/")[-1].split(".npy")[0])
+            print(len(file_list),". ",file.split("/")[-1].split(".npy")[0])
+        filenum = int(input("Please select an existing parameter set: "))
+        filename = file_list[filenum-1]
+        process_existing_parameters(filename)
+    elif choice == 3:
+        modify_current_parameters()
+    elif choice == 4:
+        filename = input("Please enter a name for your parameter set to be saved.\n> ")
+        save_current_parameters(filename)
+    elif choice == 5:
+        return
+    parameter_menu()
+
+def main_menu():
+    global param_dict
+    global system
+    if param_dict == {}:
+        print("No parameters loaded.")
+    if system == "":
+        print("No PDB loaded.")
+    print("1. Parameters")
+    if system == "":
+        print("2. Load PDB")
+    elif system != "":
+        print("2. Change PDB")
+    if param_dict!={} and system != "":
+        print("3. Build Tinker XYZ")
+    print("4. Exit program")
+    choice = int(input("Enter your choice: "))
+    cls()
+    if choice == 1:
+        parameter_menu()
+    elif choice == 2:
+        filename = input("Please enter the filename of the PDB you wish to process\n> ")
+        system = load_pdb(filename)
+    elif choice == 3 and param_dict!={} and system != "":
+        process_PDB(system)
+        filename = input("Please enter the filename to save your pdb\n> ")
+        build_xyz(system,filename)
+    elif choice == 4:
+        return
+    main_menu()
+if __name__ == "__main__":
+    if len(sys.argv) == 0:
+        cls()
+        main_menu()
+    else:
+        if len(sys.argv) != 4:
+            sys.exit("Expected 3 arguments:  \n \n python pdbtinker.py <file.pdb> <parameters.prm> <output.xyz>\n\n Run with 0 arguments for interactive mode.")
+        if len(sys.argv) == 4:
+            if sys.argv[1].split(".")[-1] == "pdb" and sys.argv[2].split(".")[1] == "prm" and sys.argv[3].split(".")[1] == "xyz":
+                system = load_pdb(sys.argv[1])
+                process_new_parameters(sys.argv[2])
+                process_PDB(system)
+                build_xyz(system,sys.argv[3])
+            else:
+                sys.exit("Arguments invalid.\n\n\tpython pdbtinker.py <file.pdb> <parameters.prm> <output.xyz>")
